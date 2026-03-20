@@ -1,0 +1,8 @@
+{
+  "ytm_browser": "safari",
+  "mpv_path": "/opt/homebrew/bin/mpv",
+  "ytdlp_path": "/opt/homebrew/bin/yt-dlp",
+  "model": "deepseek/deepseek-chat-v3-0324",
+  "crossfade_secs": 6,
+  "prebuffer_ahead": 12
+}
