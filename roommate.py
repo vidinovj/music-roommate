@@ -58,6 +58,7 @@ YTDLP_PATH      = cfg["ytdlp_path"]
 MODEL           = cfg["model"]
 CROSSFADE_SECS  = cfg["crossfade_secs"]
 PREBUFFER_AHEAD = cfg["prebuffer_ahead"]
+CHAT_COL        = 43   # characters per wrapped line in chat
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -633,27 +634,49 @@ def fetch_chat(user_msg):
 
 # ─── ASCII Roommate ───────────────────────────────────────────────────────────
 ANIM_FRAMES = {
-    "slow": [
-        [" /\\_/\\  ", "( o . o )", " )     ( ", "(_)   (_)", "         ", " z  z  z ", "         "],
-        [" /\\_/\\  ", "( - . - )", " )     ( ", "(_)   (_)", "         ", "         ", "         "],
-        [" /\\_/\\  ", "( ~ . ~ )", " )     ( ", "(_)   (_)", "         ", "   z     ", "         "],
-    ],
-    "relaxed": [
-        [" /\\_/\\  ", "( o . o )", " )     ( ", "(_)   (_)", "         ", "~        ", "         "],
-        [" /\\_/\\  ", "( o . o )", " )     ( ", "(_)   (_)", "         ", "   ~     ", "         "],
-        [" /\\_/\\  ", "( o . o )", " )     ( ", "(_)   (_)", "         ", "        ~", "         "],
-    ],
-    "hype": [
-        [" /\\_/\\  ", "( ^ . ^ )", " )     ( ", "(_)   (_)", "~ ~ ~ ~ ~", "         ", "         "],
-        ["  /\\_/\\ ", " ( ^ . ^)", "  )     (", " (_)   (_", " ~ ~ ~ ~ ", "         ", "         "],
-    ],
-    "hyperpop": [
-        [" /\\_/\\* ", "( oWo )  ", "*)     (*", "(_)   (_)", "* ~ * ~ *", "         ", "  * * *  "],
-        [" /\\_/\\  ", "(*>w<*)  ", " )     ( ", "(_)   (_)", "  ~ ~ ~  ", " *     * ", "         "],
-        ["*/\\_/\\  ", "( ^v^ ) *", "*)     ( ", "(_)   (_)", "~ ~ ~ ~ ~", "         ", "  *   *  "],
-        [" /\\_/\\* ", "( xOx )  ", " )   * ( ", "(_)   (_)", "~ * ~ * ~", " *       ", "    * *  "],
+    # Smoking rat with sunnies. Body identical across vibes — only smoke rows animate.
+    # Each frame = 6 smoke rows + 9 body rows = 15 lines total.
+    "_body": [
+        "⠀⠀⠀⠀⠀⠀⠀⠂⠠⡀⡱⡲⡒⢳⠈⠉⢿⣿⣀⣀⢿⣯⣯⢿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⣾⣾⣿⣽⣿⣯⣿⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠤⠿⠁⡩⠭⠹⢿⣯⣵⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡀⠀⠀⡇⠀⠀⢸⣿⣿⣿⣿⡿⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⣜⡄⠘⡄⠀⠸⠿⠿⣿⣿⠮⢤⣐⣐⣆⢤⣀⡀⡀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠠⠀⠂⠆⢐⠐⠩⠪⣉⡽⡗⠹⠀⠀⡔⠳⠭⠙⠉⠅⠀⠂⠉⠉⡏⣆⣶⠂⠀⣀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠒⠪⠊⠉⠁⠀⠀⠀⠀⣀⡠⢄⢔⣖⣢⡣⠕⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⡮⠚⠉⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
     ],
 }
+
+def _rat(s0, s1, s2, s3, s4, s5):
+    body = ANIM_FRAMES["_body"]
+    return [s0, s1, s2, s3, s4, s5] + body
+
+_B  = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S0 = "⠀⠀⠀⠀⠀⠀⠐⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S1 = "⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⢈⠄⠀⠀⣀⣀⣠⣒⣒⠈⠈⠲⡰⠶⠔⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S3 = "⠀⠀⠀⠀⠀⢀⠀⠀⢀⠀⠀⢀⠤⠛⠉⠘⠿⠛⠁⠀⠀⠩⡄⠠⠊⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S4 = "⠀⠀⠀⠀⠀⠀⡀⠈⠀⢀⠜⠁⠀⠀⠀⠀⠀⣀⣀⢠⢤⣤⣮⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SL = "⠀⠀⠀⠀⠈⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SR = "⠀⠀⠀⠀⠀⠀⠂⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SF = "⠀⠀⠀⠀⠀⠀⠀⠂⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SC = "⠀⠂⠀⠀⠁⠀⠂⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SD = "⠀⠀⠐⠀⠂⠁⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+
+ANIM_FRAMES["slow"]     = [_rat(_B,  _B,  _S0, _S1, _S2, _S3),
+                             _rat(_B,  _B,  _SL, _S1, _S2, _S3),
+                             _rat(_B,  _SF, _S0, _S1, _S2, _S3)]
+ANIM_FRAMES["relaxed"]  = [_rat(_B,  _B,  _S0, _S1, _S2, _S3),
+                             _rat(_B,  _SR, _S0, _S1, _S2, _S3),
+                             _rat(_B,  _B,  _SL, _S1, _S2, _S3)]
+ANIM_FRAMES["hype"]     = [_rat(_B,  _S0, _SR, _S1, _S2, _S3),
+                             _rat(_S0, _SR, _SL, _S1, _S2, _S3)]
+ANIM_FRAMES["hyperpop"] = [_rat(_SC, _SD, _SR, _S1, _S2, _S3),
+                             _rat(_SD, _SC, _SL, _S1, _S2, _S3),
+                             _rat(_SR, _SC, _SD, _S1, _S2, _S3),
+                             _rat(_SL, _SD, _SC, _S1, _S2, _S3)]
 
 anim = {"vibe": "relaxed", "frame": 0}
 
@@ -891,8 +914,7 @@ def restore_state():
     if not os.path.exists(STATE_FILE): return
     try:
         with open(STATE_FILE) as f: data = json.load(f)
-        with _state_lock:
-            state["chat_history"] = data.get("chat_history", [])
+        # chat_history already loaded by on_mount — don't overwrite it
         urls     = data.get("playlist", [])
         pos      = data.get("playlist_pos", 0)
         time_pos = data.get("time_pos", 0)
@@ -930,6 +952,7 @@ HINT = "pp · skip · vol n% · play · queue · album · save · load · pls ·
 
 class RoommateApp(App):
     TITLE = "Music Roommate"
+    _divider_count: int = 0   # alternates divider shade each track
 
     BACKGROUND = "#0d0d0d"
 
@@ -961,11 +984,11 @@ class RoommateApp(App):
 
     #bento {
         height: 1fr;
-        width: 100%;
         layout: horizontal;
         background: #0d0d0d;
         margin: 0;
         padding: 0;
+        width: 100%;
     }
 
     #left {
@@ -980,8 +1003,9 @@ class RoommateApp(App):
         height: 1fr;
         border: round $panel-darken-1;
         background: #111111;
-        content-align: center middle;
-        padding: 1 2;
+        content-align: left top;
+        padding: 1 1;
+        overflow: hidden hidden;
     }
 
     #browser {
@@ -1017,7 +1041,7 @@ class RoommateApp(App):
         with Horizontal(id="bento"):
             with Vertical(id="left"):
                 yield Static("", id="creature")
-                yield RichLog(id="browser", wrap=True, highlight=False, markup=True)
+                yield RichLog(id="browser", wrap=False, highlight=False, markup=True)
             yield RichLog(id="chat", wrap=False, highlight=False, markup=True, auto_scroll=True)
         yield Input(id="cmd", placeholder=HINT)
 
@@ -1028,24 +1052,47 @@ class RoommateApp(App):
             self.exit(message="Failed to start mpv.")
             return
         threading.Thread(target=monitor, daemon=True).start()
-        restore_state()
-        chat_log = self.query_one("#chat", RichLog)
+
+        # Replay saved chat history immediately — no blocking
         with _state_lock:
             history = list(state["chat_history"])
+
+        # Restore session and initial browser in background — has blocking sleeps
+        def _startup():
+            restore_state()
+            panel = show_queue()
+            _call_ui(lambda: self.set_browser(panel))
+
+        # Load history from disk first (non-blocking read), then start background work
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE) as f:
+                    data = json.load(f)
+                with _state_lock:
+                    state["chat_history"] = data.get("chat_history", [])
+                with _state_lock:
+                    history = list(state["chat_history"])
+            except Exception:
+                pass
+
+        chat_log = self.query_one("#chat", RichLog)
         for entry in history:
             self._render_entry(chat_log, entry)
         chat_log.scroll_end(animate=False)
         self.sync_feed()
         self.refresh_creature()
-        self.set_browser(show_queue())   # default browser content
         self.set_interval(3.0, self._advance_creature)
         self.query_one("#cmd", Input).focus()
+
+        # Now kick off the blocking parts in background
+        threading.Thread(target=_startup, daemon=True).start()
 
     def set_browser(self, renderable) -> None:
         """Replace browser panel contents with a Rich renderable."""
         browser = self.query_one("#browser", RichLog)
         browser.clear()
         browser.write(renderable)
+        browser.scroll_home(animate=False)
 
     def on_unmount(self) -> None:
         st(is_running=False)
@@ -1142,51 +1189,71 @@ class RoommateApp(App):
             title  = state["display_title"]
             artist = state["artist"]
             status = state["status_msg"]
-        parts = [("♫  ", "bold cyan"), (title, "bold white")]
-        if artist:  parts += [("  ", ""), (artist, "dim")]
-        if cfm._fading: parts += [("  ↔", "dim yellow")]
-        content = Text.assemble(*parts)
+        title_lines = textwrap.wrap(title, width=CHAT_COL) or [title]
+        title_str   = "\n  ".join(title_lines)
+        artist_str  = f"\n  [dim]{textwrap.shorten(artist, width=CHAT_COL, placeholder='…')}[/dim]" if artist else ""
+        fade_str    = "  [dim yellow]↔[/dim yellow]" if cfm._fading else ""
+        feed_str    = f"[bold cyan]♫[/bold cyan]  [bold white]{title_str}[/bold white]{artist_str}{fade_str}"
         if status:
-            content = Text.assemble(*parts, ("\n> ", "bold yellow"), (status, "yellow"))
-        self.query_one("#feed", Static).update(content)
+            feed_str += f"\n[bold yellow]>[/bold yellow] {status}"
+        self.query_one("#feed", Static).update(feed_str)
 
     def append_chat_entry(self, entry: dict) -> None:
         chat_log = self.query_one("#chat", RichLog)
         self._render_entry(chat_log, entry)
         chat_log.scroll_end(animate=False)
 
+    @staticmethod
+    def _wrap(text: str, width: int = CHAT_COL) -> list[str]:
+        """Word-safe wrap returning a list of plain strings."""
+        return textwrap.wrap(text, width=width) or [text]
+
     def _render_entry(self, chat_log: RichLog, entry: dict) -> None:
         role    = entry["role"]
         content = entry["content"]
 
-        def _wrap_left(text, width=23):
-            lines = textwrap.wrap(text, width=width)
-            return "\n".join(lines)
-
-        def _wrap_right(text, width=23):
-            lines = textwrap.wrap(text, width=width)
-            return "\n".join(l.rjust(width) for l in lines)
-
         if role == "divider":
-            lines = textwrap.wrap(content, width=20)
-            wrapped = "\n".join(f"{l:^20}" for l in lines)
-            chat_log.write(f"[dim]───\n{rich_escape(wrapped)}\n───[/dim]")
+            # Alternate between two grey shades so consecutive tracks are visually distinct
+            shade = "#888888" if self._divider_count % 2 == 0 else "#555555"
+            self._divider_count += 1
+            for line in self._wrap(rich_escape(content), width=CHAT_COL - 8):
+                padded = line.center(CHAT_COL - 8)
+                chat_log.write(f"[{shade}]─── {padded} ───[/{shade}]")
+
         elif role == "user":
-            chat_log.write(f"[bold yellow]{'You:':>23}[/bold yellow]\n{rich_escape(_wrap_right(content))}")
+            chat_log.write("[bold yellow]You:[/bold yellow]")
+            for line in self._wrap(content):
+                chat_log.write(f"[yellow]{rich_escape(line)}[/yellow]")
+
         elif role == "assistant":
             clean = strip_protocol_tags(content).strip('"\'').strip()
             if clean:
-                chat_log.write(f"[bold cyan]Roommate:[/bold cyan]\n{rich_escape(_wrap_left(clean))}")
+                chat_log.write("[bold cyan]Roommate:[/bold cyan]")
+                for line in self._wrap(clean):
+                    chat_log.write(rich_escape(line))
+
         elif role == "info":
-            chat_log.write(content)
+            for line in str(content).splitlines():
+                chat_log.write(line)
 
     def refresh_creature(self) -> None:
-        frames    = ANIM_FRAMES[anim["vibe"]]
-        frame_txt = "\n".join(frames[anim["frame"] % len(frames)])
-        label     = f"\n\n~ {anim['vibe']} ~"
+        frames = ANIM_FRAMES[anim["vibe"]]
+        raw    = frames[anim["frame"] % len(frames)]
+        # Pre-truncate to widget inner width. Braille chars are single-cell in
+        # most modern terminals but we cap at content_size.width to be safe.
+        try:
+            w = max(10, self.query_one("#creature").content_size.width)
+        except Exception:
+            w = 38
+        lines     = [line[:w] for line in raw]
+        frame_txt = "\n".join(lines)
+        label     = f"\n~ {anim['vibe']} ~"
         self.query_one("#creature", Static).update(
-            Align.center(Text(frame_txt + label, justify="center"))
+            Text(frame_txt + label, justify="left", no_wrap=True)
         )
+
+    def on_resize(self) -> None:
+        self.refresh_creature()
 
     def _advance_creature(self) -> None:
         frames = ANIM_FRAMES[anim["vibe"]]

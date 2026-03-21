@@ -1,38 +1,5 @@
 {
   "playlist": [
-    "https://www.youtube.com/watch?v=TsxAVFQkXQ8",
-    "https://www.youtube.com/watch?v=YvXcoI9xsL4",
-    "https://www.youtube.com/watch?v=D8X0WV-asv4",
-    "https://www.youtube.com/watch?v=Gb76TgCUqAY",
-    "https://www.youtube.com/watch?v=9f5zD7ZSNpQ",
-    "https://www.youtube.com/watch?v=xyUQKDE57Ag",
-    "https://www.youtube.com/watch?v=MxEjnYdfLXU",
-    "https://www.youtube.com/watch?v=lIxQe1R5hs0",
-    "https://www.youtube.com/watch?v=TkwZ2uQu2hE",
-    "https://www.youtube.com/watch?v=TFWXqLSr4ZM",
-    "https://www.youtube.com/watch?v=3Rd0b-QvyHI",
-    "https://www.youtube.com/watch?v=2SUwOgmvzK4",
-    "https://www.youtube.com/watch?v=qU9mHegkTc4",
-    "https://www.youtube.com/watch?v=Wz_5AFguGCU",
-    "https://www.youtube.com/watch?v=cZCm_i6YvAk",
-    "https://www.youtube.com/watch?v=abW7Cr9Vo_M",
-    "https://www.youtube.com/watch?v=_9bw_VtMUGA",
-    "https://www.youtube.com/watch?v=vAOzFvVz718",
-    "https://www.youtube.com/watch?v=6JHu3b-pbh8",
-    "https://www.youtube.com/watch?v=uaLV003llhY",
-    "https://www.youtube.com/watch?v=K3Qzzggn--s",
-    "https://www.youtube.com/watch?v=uzS3WG6__G4",
-    "https://www.youtube.com/watch?v=TGgcC5xg9YI",
-    "https://www.youtube.com/watch?v=dgUHE8wWhiE",
-    "https://www.youtube.com/watch?v=ZMm-M3Y1ISI",
-    "https://www.youtube.com/watch?v=vIhlZKxi8AU",
-    "https://www.youtube.com/watch?v=OcUDK4kAUIw",
-    "https://www.youtube.com/watch?v=2g5xkLqIElU",
-    "https://www.youtube.com/watch?v=BCV_vlRDrsQ",
-    "https://www.youtube.com/watch?v=Ol0-9Ob-QNk",
-    "https://www.youtube.com/watch?v=GnyVoG4_tj8",
-    "https://www.youtube.com/watch?v=t0fn0Q0DB0E",
-    "https://www.youtube.com/watch?v=9wiEM0s4aCQ",
     "https://www.youtube.com/watch?v=y7B6Z-_-Bcc",
     "https://www.youtube.com/watch?v=HwtEBQiuX-c",
     "https://www.youtube.com/watch?v=ZKjIHQxG_3Q",
@@ -494,10 +461,11 @@
     "https://www.youtube.com/watch?v=04GDDnfkZP4",
     "https://www.youtube.com/watch?v=lQmB_H3blo0",
     "https://www.youtube.com/watch?v=xl6FlMQFwFc",
-    "https://www.youtube.com/watch?v=dMV31MWIjLE"
+    "https://www.youtube.com/watch?v=dMV31MWIjLE",
+    "https://www.youtube.com/watch?v=lIxQe1R5hs0"
   ],
-  "playlist_pos": 0,
-  "time_pos": 108,
+  "playlist_pos": -1,
+  "time_pos": 0,
   "volume": 50,
   "chat_history": [
     {
@@ -931,7 +899,183 @@
     {
       "role": "assistant",
       "content": "Yeah yeah, save it for Syd."
+    },
+    {
+      "role": "assistant",
+      "content": "That Syd feature still hits. Kaytra knows hisbalanced his beats."
+    },
+    {
+      "role": "divider",
+      "content": "Give You the World  Steve Lacy"
+    },
+    {
+      "role": "divider",
+      "content": "Steve Lacy - Helmet (Official Video)  Steve Lacy"
+    },
+    {
+      "role": "divider",
+      "content": "ARE WE STILL FRIENDS?  Tyler, The Creator"
+    },
+    {
+      "role": "divider",
+      "content": "Kali Uchis - After The Storm ft. Tyler, The Creator, Bootsy Collins  KALI UCHIS"
+    },
+    {
+      "role": "assistant",
+      "content": "Bootsy's bass just slapped different on that one."
+    },
+    {
+      "role": "divider",
+      "content": "I Wonder  Kanye West"
+    },
+    {
+      "role": "assistant",
+      "content": "Late Registration era Ye hits different."
+    },
+    {
+      "role": "divider",
+      "content": "PinkPantheress - Stateside + Zara Larsson (Official Video)  Pinkpantheress"
+    },
+    {
+      "role": "assistant",
+      "content": "Cool transition."
+    },
+    {
+      "role": "divider",
+      "content": "Addison Rae - Fame is a Gun (Official Video)  Addison Rae"
+    },
+    {
+      "role": "assistant",
+      "content": "Back already? That Addison Rae track's still on."
+    },
+    {
+      "role": "divider",
+      "content": "PinkPantheress - Illegal (Official Video)  Pinkpantheress"
+    },
+    {
+      "role": "divider",
+      "content": "[Subthai] Love Me Not - Ravyn Lenae  Warner Music Thailand"
+    },
+    {
+      "role": "divider",
+      "content": "Tame Impala - The Less I Know The Better (Audio)  Tame Impala"
+    },
+    {
+      "role": "divider",
+      "content": "505  Official Arctic Monkeys"
+    },
+    {
+      "role": "divider",
+      "content": "Some  Steve Lacy"
+    },
+    {
+      "role": "user",
+      "content": "Love this one. This era of steve lacy was the best"
+    },
+    {
+      "role": "assistant",
+      "content": "That first EP still hits like nothing else. Raw but tight."
+    },
+    {
+      "role": "assistant",
+      "content": "Steve knew when to let silence do the work."
+    },
+    {
+      "role": "divider",
+      "content": "For the First Time  Mac DeMarco"
+    },
+    {
+      "role": "divider",
+      "content": "Blue Hair  TV Girl"
+    },
+    {
+      "role": "divider",
+      "content": "Tame Impala - New Person, Same Old Mistakes (Audio)  Tame Impala"
+    },
+    {
+      "role": "divider",
+      "content": "KAYTRANADA - Snap My Finger (Visualizer) ft. PinkPantheress  KAYTRANADA"
+    },
+    {
+      "role": "divider",
+      "content": "Thinkin Bout You  Blonded"
+    },
+    {
+      "role": "divider",
+      "content": "Pink Matter  Blonded"
+    },
+    {
+      "role": "assistant",
+      "content": "Frank Ocean and Andr\u00e9 3000. that falsetto kills me every time."
+    },
+    {
+      "role": "divider",
+      "content": "Joji - SLOW DANCING IN THE DARK  88rising"
+    },
+    {
+      "role": "divider",
+      "content": "Frank Ocean - Pink + White  Blonded"
+    },
+    {
+      "role": "assistant",
+      "content": "Back already? \"Pink + White\" is still fading out in my head."
+    },
+    {
+      "role": "divider",
+      "content": "SEE YOU AGAIN featuring Kali Uchis  Tyler, The Creator"
+    },
+    {
+      "role": "assistant",
+      "content": "Tyler always sounds like he's smirking."
+    },
+    {
+      "role": "divider",
+      "content": "Like Him  Tyler, The Creator"
+    },
+    {
+      "role": "divider",
+      "content": "Your Teeth In My Neck  KALI UCHIS"
+    },
+    {
+      "role": "divider",
+      "content": "Luxurious  Gwen Stefani"
+    },
+    {
+      "role": "divider",
+      "content": "Dead To Me  KALI UCHIS"
+    },
+    {
+      "role": "divider",
+      "content": "Tame Impala - Borderline (Official Audio)  Tame Impala"
+    },
+    {
+      "role": "assistant",
+      "content": "l |\")} Fuy2,Object\n$0\nPlease0\nVal |\n\u5f53*"
+    },
+    {
+      "role": "assistant",
+      "content": "Tame Impala. That bassline still hits."
+    },
+    {
+      "role": "assistant",
+      "content": "Late Registration Kanye. that Curtis Mayfield chop never gets old."
+    },
+    {
+      "role": "divider",
+      "content": "Infrunami  Steve Lacy"
+    },
+    {
+      "role": "divider",
+      "content": "KAYTRANADA - DON'T WORRY BABE / I GOT U BABE (Official Audio)  KAYTRANADA"
+    },
+    {
+      "role": "divider",
+      "content": "CUCO - Lover Is a Day (Audio)  Cuco"
+    },
+    {
+      "role": "assistant",
+      "content": "-e so too\n| x.|1|\n  expect char``` matrix"
     }
   ],
-  "saved_at": 1774011694.5838
+  "saved_at": 1774028006.877147
 }
