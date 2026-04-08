@@ -20,6 +20,8 @@ from textual.containers import Horizontal
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 COMPANION_DIR = os.path.expanduser("~/companion")
+# Ensure Homebrew and common paths are in the PATH for subprocesses
+os.environ["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ.get('PATH', '')}"
 
 _CONFIG_DEFAULTS = {
     "ytm_browser":     "safari",
@@ -46,9 +48,10 @@ def _load_config():
 
 cfg = _load_config()
 
-IPC_SOCKET   = os.path.join(COMPANION_DIR, "mpv-socket")
-STATE_FILE   = os.path.join(COMPANION_DIR, "roommate-state.json")
-LOG_FILE     = os.path.join(COMPANION_DIR, "roommate.log")
+IPC_SOCKET    = os.path.join(COMPANION_DIR, "mpv-socket")
+STATE_FILE    = os.path.join(COMPANION_DIR, "roommate-state.json")
+LOG_FILE      = os.path.join(COMPANION_DIR, "roommate.log")
+COOKIES_FILE  = os.path.join(COMPANION_DIR, "cookies.txt")
 PLAYLISTS_DIR = os.path.join(COMPANION_DIR, "playlists")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
@@ -59,6 +62,22 @@ MODEL           = cfg["model"]
 CROSSFADE_SECS  = cfg["crossfade_secs"]
 PREBUFFER_AHEAD = cfg["prebuffer_ahead"]
 CHAT_COL        = 43   # characters per wrapped line in chat
+
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+def _export_cookies():
+    """Export cookies from browser to a text file for mpv/yt-dlp reliability."""
+    try:
+        log.debug(f"Exporting cookies from {YTM_BROWSER}...")
+        subprocess.run([YTDLP_PATH, f"--cookies-from-browser={YTM_BROWSER}", 
+                        "--cookies", COOKIES_FILE, "--get-id", "https://www.google.com"],
+                       capture_output=True, timeout=15)
+        if os.path.exists(COOKIES_FILE):
+            log.debug(f"Cookies exported to {COOKIES_FILE}")
+            return True
+    except Exception as e:
+        log.error(f"Failed to export cookies: {e}")
+    return False
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -132,6 +151,36 @@ def _ui_update_feed():
     _call_ui(lambda: _app.sync_feed() if _app else None)
 
 
+def _get_youtube_cookie_header():
+    """Extracts essential YouTube cookies into a string for HTTP headers.
+    Limited to 4000 chars to prevent command line overflow.
+    """
+    if not os.path.exists(COOKIES_FILE):
+        return None
+    try:
+        essential = []
+        # Core keys required for stream auth
+        targets = {'SID', 'HSID', 'SSID', 'LOGIN_INFO', 'VISITOR_INFO1_LIVE', '__Secure-3PSID'}
+        with open(COOKIES_FILE, 'r') as f:
+            for line in f:
+                if line.startswith('#') or not line.strip(): continue
+                parts = line.strip().split('\t')
+                if len(parts) < 7: continue
+                name, value = parts[5], parts[6]
+                if name in targets:
+                    essential.append(f"{name}={value}")
+        
+        header = "; ".join(essential)
+        if len(header) > 4000:
+            # If still too long, prioritize even further
+            essential = [c for c in essential if any(k in c for k in {'SID=', 'HSID=', 'LOGIN_INFO='})]
+            header = "; ".join(essential)[:4000]
+            
+        return header if essential else None
+    except Exception as e:
+        log.error(f"Failed to parse cookies for header: {e}")
+        return None
+
 # ─── Crossfade Manager ────────────────────────────────────────────────────────
 class CrossfadeManager:
     def __init__(self):
@@ -184,40 +233,60 @@ class CrossfadeManager:
                     if b"\n" in chunk: break
                 raw = b"".join(chunks).decode().strip().splitlines()
                 return json.loads(raw[0]) if raw else None
-            except Exception as e:
-                log.debug(f"send {sock_path}: {e}")
+            except (BrokenPipeError, ConnectionResetError, socket.timeout) as e:
+                log.debug(f"send {sock_path} retry: {e}")
                 self._drop_conn(sock_path)
+            except Exception as e:
+                log.debug(f"send {sock_path} error: {e}")
+                self._drop_conn(sock_path)
+                break
         return None
 
     def _get_prop(self, sock_path, prop, fallback=None):
         r = self._send(sock_path, {"command": ["get_property", prop]})
-        if r and r.get("error") == "success" and "data" in r:
+        if isinstance(r, dict) and r.get("error") == "success" and "data" in r:
             return r["data"]
         return fallback
 
     def _launch(self, sock_path, volume=100):
         os.makedirs(COMPANION_DIR, exist_ok=True)
+        _export_cookies()
+        
+        cookie_hdr = _get_youtube_cookie_header()
+        
         flags = [
             MPV_PATH, "--no-video", "--gapless-audio=yes", "--cache=yes", "--idle=yes",
+            f"--user-agent={USER_AGENT}",
             f"--input-ipc-server={sock_path}",
-            f"--ytdl-raw-options=cookies-from-browser={YTM_BROWSER},yes-playlist=",
             f"--volume={volume}",
+            "--ytdl=yes",
+            f"--ytdl-raw-options=cookies={COOKIES_FILE}",
         ]
+        if cookie_hdr:
+            flags.append(f"--http-header-fields=Cookie: {cookie_hdr}")
+
+        log.debug(f"launching mpv (FIXED): {' '.join(flags)}")
         try:
             subprocess.Popen(flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
         except Exception as e:
-            log.error(f"launch mpv: {e}"); return False
-        for _ in range(14):
+            log.error(f"launch mpv popen error: {e}"); return False
+            
+        for _ in range(20):
             time.sleep(0.5)
-            if os.path.exists(sock_path): return True
+            if os.path.exists(sock_path): 
+                log.debug(f"mpv socket found: {sock_path}")
+                return True
+        log.error(f"mpv socket never appeared: {sock_path}")
         return False
 
     def _quit_sock(self, sock_path):
         if not sock_path: return
+        try:
+            self._send(sock_path, {"command": ["quit"]})
+        except: pass
+        time.sleep(0.2)
         self._drop_conn(sock_path)
-        self._send(sock_path, {"command": ["quit"]})
-        time.sleep(0.3)
         try:
             if os.path.exists(sock_path): os.remove(sock_path)
         except: pass
@@ -256,14 +325,20 @@ class CrossfadeManager:
         if self._fading or not self.a_sock: return
         dur = self._get_prop(self.a_sock, "duration")
         pos = self._get_prop(self.a_sock, "time-pos")
-        if dur is None or pos is None: return
+        if not isinstance(dur, (int, float)) or not isinstance(pos, (int, float)): return
+        if dur <= 0 or pos < 0: return
         if dur - pos > PREBUFFER_AHEAD: return
+
         playlist = self._get_prop(self.a_sock, "playlist", fallback=[])
+        if not isinstance(playlist, list): return
         cur_idx  = self._get_prop(self.a_sock, "playlist-pos", fallback=0)
         if not isinstance(cur_idx, int): cur_idx = 0
         if cur_idx + 1 >= len(playlist): return
-        next_url = playlist[cur_idx + 1].get("filename") if isinstance(playlist[cur_idx + 1], dict) else None
+        
+        next_item = playlist[cur_idx + 1]
+        next_url  = next_item.get("filename") if isinstance(next_item, dict) else None
         if not next_url: return
+
         rest_urls = [
             item.get("filename") for item in playlist[cur_idx + 2:]
             if isinstance(item, dict) and item.get("filename")
@@ -274,36 +349,69 @@ class CrossfadeManager:
         with self._cf_lock:
             if self._fading: return
             self._fading = True
-        log.debug(f"crossfade → {next_url[:60]}")
+        log.debug(f"crossfade sequence started → {next_url[:60]}")
         try:
             b = self._new_sock()
-            if not self._launch(b, volume=0): return
+            if not self._launch(b, volume=0):
+                log.error("crossfade: failed to launch new mpv instance")
+                self._fading = False
+                return
             self.b_sock = b
-            self._send(b, {"command": ["loadfile", next_url, "replace"]})
-            deadline = time.time() + 10
+            
+            log.debug(f"loading file in B: {next_url[:60]}")
+            res = self._send(b, {"command": ["loadfile", next_url, "replace"]})
+            if not res or res.get("error") != "success":
+                log.error(f"crossfade: loadfile failed in instance B: {res}")
+                self._quit_sock(b)
+                self.b_sock = None
+                return
+
+            # Verify it actually starts
+            started = False
+            deadline = time.time() + 12
             while time.time() < deadline:
-                if self._get_prop(b, "time-pos", 0) > 0.1: break
-                time.sleep(0.25)
+                p = self._get_prop(b, "time-pos")
+                if isinstance(p, (int, float)) and p > 0.05:
+                    started = True; break
+                time.sleep(0.5)
+            
+            if not started:
+                log.warning(f"crossfade failed: {next_url} never started in B (timed out)")
+                self._quit_sock(b)
+                self.b_sock = None
+                return
+
+            log.debug("crossfade instance B started successfully, beginning fade...")
             a_dur = self._get_prop(self.a_sock, "duration")
             a_pos = self._get_prop(self.a_sock, "time-pos")
-            if a_dur and a_pos:
+            if isinstance(a_dur, (int, float)) and isinstance(a_pos, (int, float)):
                 wait = max(0.0, (a_dur - a_pos) - CROSSFADE_SECS)
-                if wait > 0: time.sleep(wait)
+                if wait > 0: 
+                    log.debug(f"waiting {wait:.1f}s for end of track A")
+                    time.sleep(wait)
+
             steps, target = int(CROSSFADE_SECS * 10), self._user_vol
             for i in range(steps + 1):
                 frac = i / steps
                 self._send(self.a_sock, {"command": ["set_property", "volume", target - int(frac * target)]})
                 self._send(b,           {"command": ["set_property", "volume", int(frac * target)]})
                 time.sleep(CROSSFADE_SECS / steps)
+
             old_a, self.a_sock, self.b_sock = self.a_sock, b, None
             self._send(self.a_sock, {"command": ["set_property", "volume", target]})
+            log.debug(f"crossfade complete, switched to socket {self.a_sock}")
+            
             for url in rest_urls:
                 self._send(self.a_sock, {"command": ["loadfile", url, "append"]})
+            
             self._update_symlink(self.a_sock)
             self._quit_sock(old_a)
             _ui_update_feed()
         except Exception as e:
-            log.error(f"crossfade: {e}")
+            log.error(f"crossfade critical error: {e}")
+            if self.b_sock:
+                self._quit_sock(self.b_sock)
+                self.b_sock = None
         finally:
             self._fading = False
 
@@ -338,10 +446,31 @@ def send_mpv(cmd):
 
 def mpv_get(prop, fallback=None):
     r = _raw_send({"command": ["get_property", prop]})
-    if r and r.get("error") == "success" and "data" in r:
+    if isinstance(r, dict) and r.get("error") == "success" and "data" in r:
         return r["data"]
     return fallback
 
+
+def _resolve_stream_url(url):
+    """Manually resolve a YouTube URL to a direct stream URL using yt-dlp."""
+    if not url or "youtube.com" not in str(url) and "youtu.be" not in str(url):
+        return url
+    try:
+        cmd = [YTDLP_PATH, "--quiet", "--get-url", "-f", "bestaudio[ext=m4a]/bestaudio/best",
+               "--user-agent", USER_AGENT]
+        if os.path.exists(COOKIES_FILE):
+            cmd.extend(["--cookies", COOKIES_FILE])
+        else:
+            cmd.append(f"--cookies-from-browser={YTM_BROWSER}")
+        cmd.append(str(url))
+        
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        resolved = res.stdout.strip().split('\n')[0]
+        if resolved and resolved.startswith("http"):
+            return resolved
+    except Exception as e:
+        log.error(f"Failed to resolve stream URL for {url}: {e}")
+    return url
 
 # ─── Search & Queue ───────────────────────────────────────────────────────────
 def search_and_queue(query, mode):
@@ -403,16 +532,22 @@ _ALBUM_RE = re.compile(
     r"[-–]\s*(?:full\s+album|album\s+completo|complete\s+album|all\s+songs)", re.I)
 
 def scout_real_title(url, silent=False):
-    if not url or "v=" not in url:
-        st(display_title="Loading...")
+    if not url or not isinstance(url, str) or "v=" not in url:
+        st(display_title=str(url or "Loading..."))
         _ui_update_feed()
         return
     vid_id = url.split("v=")[1].split("&")[0]
     try:
-        out = subprocess.check_output(
-            [YTDLP_PATH, "--print", "%(title)s|||%(uploader)s|||%(upload_date>%Y)s",
-             "--quiet", vid_id], timeout=10,
-        ).decode().strip()
+        cmd = [YTDLP_PATH, "--print", "%(title)s|||%(uploader)s|||%(upload_date>%Y)s",
+               "--quiet", "--user-agent", USER_AGENT]
+        if os.path.exists(COOKIES_FILE):
+            cmd.extend(["--cookies", COOKIES_FILE])
+        else:
+            cmd.append(f"--cookies-from-browser={YTM_BROWSER}")
+        cmd.append(vid_id)
+        
+        res = subprocess.run(cmd, timeout=12, capture_output=True, text=True)
+        out = res.stdout.strip()
         parts = out.split("|||")
         title    = parts[0].strip() if len(parts) > 0 else ""
         uploader = parts[1].strip() if len(parts) > 1 else ""
@@ -448,9 +583,11 @@ def scout_real_title(url, silent=False):
 
 # ─── Monitor ──────────────────────────────────────────────────────────────────
 def _vid_from_path(url):
-    if url and "v=" in url:
-        return url.split("v=")[1].split("&")[0]
-    return url or ""
+    if not url: return ""
+    url_str = str(url)
+    if "v=" in url_str:
+        return url_str.split("v=")[1].split("&")[0]
+    return url_str
 
 _REPEAT_LINES    = ["again.", "back to this one.", "already played this one tonight.",
                     "second round.", "revisit."]
@@ -464,7 +601,7 @@ def monitor():
         try:
             p = mpv_get("time-pos")
             d = mpv_get("duration")
-            if p is not None and d is not None and d > 0:
+            if isinstance(p, (int, float)) and isinstance(d, (int, float)) and d > 0:
                 pi, di = int(p), int(d)
                 perc = int((pi / di) * 100)
                 st(playback_time=(f"{time.strftime('%M:%S', time.gmtime(pi))} / "
@@ -480,7 +617,7 @@ def monitor():
                     st(_reacted_vid=cur_vid)
                     threading.Thread(target=_fire_end_of_track_reaction, daemon=True).start()
 
-            path   = mpv_get("path") or ""
+            path   = mpv_get("path")
             vid_id = _vid_from_path(path)
             if vid_id and vid_id != state["_last_divider_vid"]:
                 with _state_lock:
@@ -490,7 +627,7 @@ def monitor():
                     line = _REPEAT_LINES[_repeat_counter % len(_REPEAT_LINES)]
                     _repeat_counter += 1
                     _ui_append_chat({"role": "assistant", "content": line})
-                st(_last_divider_vid=vid_id, display_title="Fetching...", current_song=path)
+                st(_last_divider_vid=vid_id, display_title="Fetching...", current_song=str(path or ""))
                 _ui_update_feed()
                 threading.Thread(target=scout_real_title, args=(path,), daemon=True).start()
 
@@ -500,13 +637,15 @@ def monitor():
             _set_terminal_title(f"♫ {disp}  {pt}")
             cfm.check_crossfade()
         except Exception as e:
-            log.debug(f"monitor: {e}")
+            log.debug(f"monitor loop error: {e}")
         time.sleep(1)
 
 
 def _set_terminal_title(title):
+    with _state_lock:
+        if not state["is_running"]: return
     try:
-        safe = title.replace('"', '\\"')
+        safe = str(title).replace('"', '\\"')
         os.system(f'osascript -e "tell application \\"Terminal\\" to set custom title of '
                   f'first window to \\"{safe}\\"" > /dev/null 2>&1')
     except: pass
@@ -634,49 +773,57 @@ def fetch_chat(user_msg):
 
 # ─── ASCII Roommate ───────────────────────────────────────────────────────────
 ANIM_FRAMES = {
-    # Smoking rat with sunnies. Body identical across vibes — only smoke rows animate.
-    # Each frame = 6 smoke rows + 9 body rows = 15 lines total.
+    # Smoking cat with sunnies. Body is fixed; first 3 rows are animated smoke.
     "_body": [
-        "⠀⠀⠀⠀⠀⠀⠀⠂⠠⡀⡱⡲⡒⢳⠈⠉⢿⣿⣀⣀⢿⣯⣯⢿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⣾⣾⣿⣽⣿⣯⣿⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠤⠿⠁⡩⠭⠹⢿⣯⣵⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡀⠀⠀⡇⠀⠀⢸⣿⣿⣿⣿⡿⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⣜⡄⠘⡄⠀⠸⠿⠿⣿⣿⠮⢤⣐⣐⣆⢤⣀⡀⡀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠠⠀⠂⠆⢐⠐⠩⠪⣉⡽⡗⠹⠀⠀⡔⠳⠭⠙⠉⠅⠀⠂⠉⠉⡏⣆⣶⠂⠀⣀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠒⠪⠊⠉⠁⠀⠀⠀⠀⣀⡠⢄⢔⣖⣢⡣⠕⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⡮⠚⠉⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⣤⡀⠀⠀⠀⠐⠷⣲⡀⠀⠀⠀⠀⠀⠀⠀⣠⡤⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⢐⣿⣿⡟⡀⠀⠀⠀⠀⢀⠃⠀⠀⠀⠀⢀⢴⣿⣯⠁⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠨⣷⣿⣿⣧⣀⡀⣀⣀⡀⢀⣀⠀⠀⣠⣿⣿⠿⠃⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣶⣿⣿⡿⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⣿⠟⢿⠿⢿⣿⣿⣿⡿⠿⠻⠻⢿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⠀⡾⣿⣷⣦⣼⣴⣿⣿⠿⢿⣶⣦⢴⣴⣶⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⣀⣻⣿⣟⣿⣿⣿⣿⣿⣴⣾⣿⣿⣿⢗⢿⣿⣿⠇⢀⡀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⢈⣁⡼⣿⣿⡧⣾⣦⣿⣿⣿⡟⢿⣿⣿⡿⠿⢿⡇⠀⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠂⠁⠀⢀⠜⢻⣿⣶⣮⣽⣿⠓⣠⣿⣿⣿⣾⣿⠵⢤⣀⠈⠉⠁⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⢀⠴⠊⠁⠀⣠⣿⣿⣿⣿⠋⣰⣿⣿⣿⣿⣿⣿⣶⣄⠈⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠈⠀⢠⣾⣏⣿⣿⣿⡿⢳⣼⣽⣿⣿⣿⣿⣿⣿⣻⣿⣧⠀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣣⡀⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⡂⠀⠀⠀⠀⠀⠀",
+        "⠀⠀⠀⠀⠀⠀⢼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣽⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⢀",
     ],
 }
 
-def _rat(s0, s1, s2, s3, s4, s5):
-    body = ANIM_FRAMES["_body"]
-    return [s0, s1, s2, s3, s4, s5] + body
+def _cat(*smoke_rows):
+    return list(smoke_rows) + ANIM_FRAMES["_body"]
 
-_B  = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_S0 = "⠀⠀⠀⠀⠀⠀⠐⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_S1 = "⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_S2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⢈⠄⠀⠀⣀⣀⣠⣒⣒⠈⠈⠲⡰⠶⠔⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_S3 = "⠀⠀⠀⠀⠀⢀⠀⠀⢀⠀⠀⢀⠤⠛⠉⠘⠿⠛⠁⠀⠀⠩⡄⠠⠊⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_S4 = "⠀⠀⠀⠀⠀⠀⡀⠈⠀⢀⠜⠁⠀⠀⠀⠀⠀⣀⣀⢠⢤⣤⣮⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_SL = "⠀⠀⠀⠀⠈⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_SR = "⠀⠀⠀⠀⠀⠀⠂⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_SF = "⠀⠀⠀⠀⠀⠀⠀⠂⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_SC = "⠀⠂⠀⠀⠁⠀⠂⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
-_SD = "⠀⠀⠐⠀⠂⠁⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+# Smoke row variants — shift position slightly each frame
+_S0 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⢄⢴⠀⠜⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S1 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠿⠿⠄⡡⡄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_S2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡅⡙⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+# shifted left
+_SL0 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⢄⢴⠀⠜⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SL1 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠿⠿⠄⡡⡄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SL2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡅⡙⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+# shifted right
+_SR0 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⢄⢴⠀⠜⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SR1 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠿⠿⠄⡡⡄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SR2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡅⡙⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+# faint / dispersed
+_SF0 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⢄⢤⠀⠔⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SF1 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠿⠶⠄⡁⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+_SF2 = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡄⡘⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
 
-ANIM_FRAMES["slow"]     = [_rat(_B,  _B,  _S0, _S1, _S2, _S3),
-                             _rat(_B,  _B,  _SL, _S1, _S2, _S3),
-                             _rat(_B,  _SF, _S0, _S1, _S2, _S3)]
-ANIM_FRAMES["relaxed"]  = [_rat(_B,  _B,  _S0, _S1, _S2, _S3),
-                             _rat(_B,  _SR, _S0, _S1, _S2, _S3),
-                             _rat(_B,  _B,  _SL, _S1, _S2, _S3)]
-ANIM_FRAMES["hype"]     = [_rat(_B,  _S0, _SR, _S1, _S2, _S3),
-                             _rat(_S0, _SR, _SL, _S1, _S2, _S3)]
-ANIM_FRAMES["hyperpop"] = [_rat(_SC, _SD, _SR, _S1, _S2, _S3),
-                             _rat(_SD, _SC, _SL, _S1, _S2, _S3),
-                             _rat(_SR, _SC, _SD, _S1, _S2, _S3),
-                             _rat(_SL, _SD, _SC, _S1, _S2, _S3)]
+ANIM_FRAMES["slow"]     = [_cat(_S0,  _S1,  _S2),
+                             _cat(_SL0, _SL1, _SL2),
+                             _cat(_SF0, _SF1, _SF2)]
+ANIM_FRAMES["relaxed"]  = [_cat(_S0,  _S1,  _S2),
+                             _cat(_SR0, _SR1, _SR2),
+                             _cat(_SL0, _SL1, _SL2)]
+ANIM_FRAMES["hype"]     = [_cat(_SL0, _S1,  _SR2),
+                             _cat(_SR0, _SL1, _S2)]
+ANIM_FRAMES["hyperpop"] = [_cat(_SF0, _SR1, _SL2),
+                             _cat(_SR0, _SF1, _S2),
+                             _cat(_SL0, _S1,  _SF2),
+                             _cat(_S0,  _SL1, _SR2)]
 
 anim = {"vibe": "relaxed", "frame": 0}
 
@@ -803,7 +950,7 @@ def playlist_load(name):
     urls = [t["url"] for t in tracks if t.get("url")]
     send_mpv({"command": ["loadfile", urls[0], "replace"]})
     for url in urls[1:]: send_mpv({"command": ["loadfile", url, "append"]})
-    _ui_set_status(f"Loaded '{name}' — {len(urls)} track{'s' if len(urls) != 1 else ''}.")
+    _ui_set_status(f"Loaded '{name}' — {len(urls)} tracks.")
 
 def playlist_remove(name, index):
     path = _playlist_path(name)
@@ -856,7 +1003,9 @@ def playlist_list(name=None):
 
 def show_queue():
     """Returns markup string for browser. Resolves titles for raw URLs."""
-    playlist    = mpv_get("playlist", fallback=[])
+    playlist = mpv_get("playlist", fallback=[])
+    if not isinstance(playlist, list):
+        playlist = []
     current_pos = mpv_get("playlist-pos", fallback=0)
     if not isinstance(current_pos, int): current_pos = 0
     if not playlist:
@@ -873,9 +1022,15 @@ def show_queue():
             if not title and "v=" in filename:
                 vid = filename.split("v=")[1].split("&")[0]
                 try:
-                    title = subprocess.check_output(
-                        [YTDLP_PATH, "--get-title", "--quiet", vid], timeout=8
-                    ).decode().strip()
+                    cmd = [YTDLP_PATH, "--get-title", "--quiet", "--user-agent", USER_AGENT]
+                    if os.path.exists(COOKIES_FILE):
+                        cmd.extend(["--cookies", COOKIES_FILE])
+                    else:
+                        cmd.append(f"--cookies-from-browser={YTM_BROWSER}")
+                    cmd.append(vid)
+                    
+                    res = subprocess.run(cmd, timeout=8, capture_output=True, text=True)
+                    title = res.stdout.strip()
                 except Exception:
                     title = vid
             elif not title:
@@ -1041,7 +1196,7 @@ class RoommateApp(App):
         with Horizontal(id="bento"):
             with Vertical(id="left"):
                 yield Static("", id="creature")
-                yield RichLog(id="browser", wrap=False, highlight=False, markup=True)
+                yield RichLog(id="browser", wrap=False, highlight=False, markup=True, auto_scroll=False)
             yield RichLog(id="chat", wrap=False, highlight=False, markup=True, auto_scroll=True)
         yield Input(id="cmd", placeholder=HINT)
 
@@ -1093,7 +1248,6 @@ class RoommateApp(App):
         browser.clear()
         browser.write(renderable)
         browser.scroll_home(animate=False)
-
     def on_unmount(self) -> None:
         st(is_running=False)
         save_state()
@@ -1247,9 +1401,8 @@ class RoommateApp(App):
             w = 38
         lines     = [line[:w] for line in raw]
         frame_txt = "\n".join(lines)
-        label     = f"\n~ {anim['vibe']} ~"
         self.query_one("#creature", Static).update(
-            Text(frame_txt + label, justify="left", no_wrap=True)
+            Text(frame_txt, justify="left", no_wrap=True)
         )
 
     def on_resize(self) -> None:
@@ -1266,12 +1419,42 @@ def main():
     log.info("starting")
     # Paint the terminal's own background before Textual takes over,
     # so any gap between the app and the window edge matches our color.
-    sys.stdout.write("\033[?25l")          # hide cursor during transition
-    sys.stdout.write("\033[48;2;13;13;13m") # set terminal bg to #0d0d0d
-    sys.stdout.write("\033[2J\033[H")      # clear screen with that bg
-    sys.stdout.flush()
+    try:
+        sys.stdout.write("\033[?25l")          # hide cursor during transition
+        sys.stdout.write("\033[48;2;13;13;13m") # set terminal bg to #0d0d0d
+        sys.stdout.write("\033[2J\033[H")      # clear screen with that bg
+        sys.stdout.flush()
+    except BrokenPipeError:
+        pass
+        
     app = RoommateApp()
-    app.run()
+    try:
+        app.run()
+    finally:
+        # Stop background title updates immediately
+        st(is_running=False)
+        
+        # Prevent "Exception ignored while flushing sys.stdout" on exit
+        # We replace sys.stdout/stderr with a dummy object that has a no-op flush
+        class SilentStream:
+            def write(self, _): pass
+            def flush(self): pass
+        
+        try:
+            sys.stdout.flush()
+        except:
+            pass
+            
+        sys.stdout = SilentStream()
+        sys.stderr = SilentStream()
+        
+        # Also redirect the actual file descriptors for good measure
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
