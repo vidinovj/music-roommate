@@ -451,27 +451,6 @@ def mpv_get(prop, fallback=None):
     return fallback
 
 
-def _resolve_stream_url(url):
-    """Manually resolve a YouTube URL to a direct stream URL using yt-dlp."""
-    if not url or "youtube.com" not in str(url) and "youtu.be" not in str(url):
-        return url
-    try:
-        cmd = [YTDLP_PATH, "--quiet", "--get-url", "-f", "bestaudio[ext=m4a]/bestaudio/best",
-               "--user-agent", USER_AGENT]
-        if os.path.exists(COOKIES_FILE):
-            cmd.extend(["--cookies", COOKIES_FILE])
-        else:
-            cmd.append(f"--cookies-from-browser={YTM_BROWSER}")
-        cmd.append(str(url))
-        
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        resolved = res.stdout.strip().split('\n')[0]
-        if resolved and resolved.startswith("http"):
-            return resolved
-    except Exception as e:
-        log.error(f"Failed to resolve stream URL for {url}: {e}")
-    return url
-
 # ─── Search & Queue ───────────────────────────────────────────────────────────
 def search_and_queue(query, mode):
     try:
@@ -483,8 +462,10 @@ def search_and_queue(query, mode):
         if not ids:
             _ui_set_status("Nothing found."); return
         vid = ids[0]
-        if mode == "replace":
+        if mode == "radio":
             send_mpv({"command": ["loadfile", f"https://www.youtube.com/watch?v={vid}&list=RD{vid}", "replace"]})
+        elif mode == "replace":
+            send_mpv({"command": ["loadfile", f"https://www.youtube.com/watch?v={vid}", "replace"]})
         else:
             send_mpv({"command": ["loadfile", f"https://www.youtube.com/watch?v={vid}", "append"]})
             time.sleep(0.3)
@@ -1103,7 +1084,7 @@ def restore_state():
 
 
 # ─── Textual App ──────────────────────────────────────────────────────────────
-HINT = "pp · skip · vol n% · play · queue · album · save · load · pls · rm · abt · qq · clear · brb"
+HINT = "pp · skip · vol n% · play · radio · queue · album · save · load · pls · rm · abt · qq · clear · brb"
 
 class RoommateApp(App):
     TITLE = "Music Roommate"
@@ -1319,11 +1300,14 @@ class RoommateApp(App):
             threading.Thread(target=_abt, daemon=True).start(); return
 
         play_m  = re.match(r"^play\s+(.+)",  lower)
+        radio_m = re.match(r"^radio\s+(.+)", lower)
         queue_m = re.match(r"^queue\s+(.+)", lower)
         album_m = re.match(r"^album\s+(.+)", lower)
 
         if play_m:
             threading.Thread(target=search_and_queue, args=(play_m.group(1), "replace"), daemon=True).start(); return
+        if radio_m:
+            threading.Thread(target=search_and_queue, args=(radio_m.group(1), "radio"), daemon=True).start(); return
         if queue_m:
             threading.Thread(target=search_and_queue, args=(queue_m.group(1), "append"), daemon=True).start(); return
         if album_m:
